@@ -57,6 +57,7 @@ Run the following:
 ```bash
 sudo apt update
 sudo apt install bluez ofono dbus pulseaudio python3-dbus python3-gi
+
 ✅ Python Dependencies
 Install with pip:
 
@@ -79,9 +80,12 @@ Enable oFono:
 
 sudo systemctl enable ofono
 sudo systemctl start ofono
+```
+
 Run the app:
 
-python -m app.main
+sudo env PATH=$PATH uvicorn app.main:app --reload 
+
 🎧 Spotify Metadata (Optional)
 
 To enhance metadata (cover image, duration, etc.) from Spotify, create a .env file in your root directory like this:
@@ -150,6 +154,7 @@ Example JSON: (/ws/spotify-metadata)
   "position": 23912,
   "status": playing
 }
+
 🛠 systemd Service (Autostart on Boot)
 
 To run BlueDrive on boot, create this file:
@@ -171,9 +176,11 @@ WantedBy=multi-user.target
 
 Enable the service:
 
+```bash
 sudo systemctl daemon-reexec
 sudo systemctl enable bluedrive
 sudo systemctl start bluedrive
+```
 🤝 Contributing
 
 Want to help expand the system to include PBAP, MAP, OBEX, or even Android Auto?
