@@ -1,12 +1,14 @@
-# Temel Bağımlılıklar
+# Main Dependencies
 fastapi==0.109.2
 uvicorn[standard]==0.27.1
 python-dotenv
 pexpect
 
-# Bluetooth & DBus
+# Bluetooth Dependencies
+# These are required for the Bluetooth functionality
 dbus-python==1.3.2
 pygobject==3.44.1
 dbus-next
 requests
 spotipy
+
