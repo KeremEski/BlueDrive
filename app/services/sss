@@ -1,0 +1,84 @@
+# app/services/call_service.py
+import dbus
+
+class HfpService:
+    def __init__(self, mac: str):
+        self.mac = mac
+        self.bus = dbus.SystemBus()
+        self.device_path = f"/hfp/org/bluez/hci0/dev_{mac.replace(':', '_')}"
+        self._check_interfaces()
+
+    def _check_interfaces(self):
+        obj = self.bus.get_object("org.ofono", self.device_path)
+        props = dbus.Interface(obj, "org.freedesktop.DBus.Properties")
+        interfaces = props.Get("org.ofono.Modem", "Interfaces")
+        if "org.ofono.VoiceCallManager" not in interfaces:
+            raise Exception("Bu cihaz arama kontrolünü desteklemiyor (VoiceCallManager yok)")
+        self.voice_manager = dbus.Interface(obj, "org.ofono.VoiceCallManager")
+        self.modem_props = props
+
+    def get_calls(self):
+        """Tüm aktif/gelen çağrıları döndür"""
+        calls = self.voice_manager.GetCalls()
+        result = []
+        for path, properties in calls:
+            result.append({
+                "path": path,
+                "state": properties.get("State"),
+                "line_id": properties.get("LineIdentification")
+            })
+        return result
+
+    def answer_call(self):
+        """Gelen çağrıyı cevapla"""
+        for call in self.get_calls():
+            if call["state"] == "incoming":
+                obj = self.bus.get_object("org.ofono", call["path"])
+                iface = dbus.Interface(obj, "org.ofono.VoiceCall")
+                iface.Answer()
+                print("📞 Gelen çağrı cevaplandı.")
+                return True
+        print("📭 Gelen çağrı yok.")
+        return False
+
+    def hangup_calls(self):
+        """Tüm aktif çağrıları kapat"""
+        for call in self.get_calls():
+            obj = self.bus.get_object("org.ofono", call["path"])
+            iface = dbus.Interface(obj, "org.ofono.VoiceCall")
+            iface.Hangup()
+            print(f"❌ Çağrı sonlandırıldı: {call['line_id']}")
+
+    def get_network_status(self):
+        """Şebeke durumu (operatör, sinyal)"""
+        obj = self.bus.get_object("org.ofono", self.device_path)
+        netreg = dbus.Interface(obj, "org.ofono.NetworkRegistration")
+        net_props = dbus.Interface(obj, "org.freedesktop.DBus.Properties")
+
+        operator = net_props.Get("org.ofono.NetworkRegistration", "Name")
+        strength = net_props.Get("org.ofono.NetworkRegistration", "Strength")
+        status = net_props.Get("org.ofono.NetworkRegistration", "Status")
+
+        return {
+            "operator": operator,
+            "strength": int(str(strength)),
+            "status": status
+        }
+
+
+if __name__ == "__main__":
+    
+    mac = "E0:6D:17:5B:2E:3C"  # iPhone MAC adresin
+    service = HfpService(mac)
+
+    print("📲 Çağrılar:")
+    print(service.get_calls())
+
+    print("\n📡 Şebeke durumu:")
+    print(service.get_network_status())
+
+    print("\n✅ Gelen çağrı varsa cevaplanıyor...")
+    service.answer_call()
+
+    print("\n❌ Tüm çağrılar sonlandırılıyor...")
+    service.hangup_calls()

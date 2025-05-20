@@ -1,0 +1,12 @@
+sudo apt-get install -y \
+    build-essential \
+    libdbus-1-dev \
+    libglib2.0-dev \
+    libspa-0.2-bluetooth \
+    libgirepository1.0-dev \
+    libcairo2-dev \
+    bluez \
+    bluez-tools \
+    pulseaudio-module-bluetooth \
+    ofono \
+
