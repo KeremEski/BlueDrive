@@ -2,9 +2,8 @@ import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-from app.services.service_container import hfp_service
-
-from app.controllers import bluetooth_controller, media_controller, ws_controller,hfp_controller
+from app.containers.service_container import hfp_service
+from app.controllers import bluetooth_controller, media_controller, ws_controller,hfp_controller,wifi_controller
 
 # Lifespan context
 
@@ -49,5 +48,6 @@ app.include_router(hfp_controller.router)
 app.include_router(media_controller.router)
 app.include_router(bluetooth_controller.router)
 app.include_router(ws_controller.router)
+app.include_router(wifi_controller.router)
 
 # sudo env PATH=$PATH uvicorn app.main:app --reload

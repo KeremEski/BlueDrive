@@ -3,12 +3,15 @@ import re
 import unicodedata
 
 from app.models.schemas import Metadata
+from app.containers.logging_container import LoggingContainer
 import requests
 from pydbus import SystemBus
 from dotenv import load_dotenv
 from fastapi.responses import JSONResponse
 from spotipy import Spotify
 from spotipy.oauth2 import SpotifyClientCredentials
+
+logger = LoggingContainer.get_logger("MediaService")
 
 class MediaService:
     def __init__(self):

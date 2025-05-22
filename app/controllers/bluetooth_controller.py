@@ -16,10 +16,18 @@ async def connect_device(mac: str):
 
 @router.get("/paired-devices")
 def paired_devices_list():
-    devices =  bluetooth_service.get_known_devices()
-    return devices
+    try:
+        devices =  bluetooth_service.get_known_devices()
+        return devices
+    except Exception as e:
+        return {"status": "failed", "error": str(e)}
 
 @router.get("/clean-cache")
-def paired_devices_list():
-    return bluetooth_service.reset_bluetooth_cache()
+def clean_cache():
+    try:
+        bluetooth_service.reset_bluetooth_cache()
+        return {"status": "success"}
+    except Exception as e:
+        return {"status": "failed", "error": str(e)}
+    
      

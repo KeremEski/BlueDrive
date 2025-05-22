@@ -1,9 +1,12 @@
 from app.models.schemas import HandsFreeData
+from app.containers.logging_container import LoggingContainer
 import dbus
 import threading
 from dbus.mainloop.glib import DBusGMainLoop
 from gi.repository import GLib
 import time
+
+logger = LoggingContainer.get_logger("HandsFreeService")
 
 class HandsFreeService:
     def __init__(self):

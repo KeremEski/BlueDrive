@@ -10,3 +10,7 @@ sudo apt-get install -y \
     pulseaudio-module-bluetooth \
     ofono \
 
+sudo apt update
+sudo apt install network-manager wpasupplicant dbus -y
+sudo systemctl enable NetworkManager
+sudo systemctl start NetworkManager

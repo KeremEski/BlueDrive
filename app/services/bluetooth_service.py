@@ -4,51 +4,24 @@ import shutil
 import subprocess
 import time
 import re
+from app.containers.logging_container import LoggingContainer
 from pydbus import SystemBus
 import pexpect
+
+logger = LoggingContainer.get_logger("BluetoothService")
 
 class BluetoothService:
     def __init__(self):
         pass
     
+    # Need to be updated
     async def auto_connect_paired_devices(self) -> bool:
-        """Eşleşmiş tüm cihazları dener ve ilk başarılı bağlantıda durur."""
-        known_devices = self._get_known_devices()
-        
-        if not known_devices:
-            print("⚠️ Eşleşmiş cihaz bulunamadı")
-            return False
+        return True
 
-        print(f"🔍 {len(known_devices)} eşleşmiş cihaz taranıyor...")
-        
-        for index, mac in enumerate(known_devices, 1):
-            print(f"\n🔌 ({index}/{len(known_devices)}) {mac} deneniyor...")
-            
-            # Cihaz durumunu kontrol et
-            status = await self._check_device_status(mac)
-            if status.get("connected"):
-                print("ℹ️ Cihaz zaten bağlı")
-                return True
-                
-            # Bağlantı denemesi
-            try:
-                if await self.connect_paired_device(mac):
-                    print(f"✅ Başarıyla bağlandı: {mac}")
-                    return True
-                    
-                print(f"❌ Bağlantı başarısız: {mac}")
-                
-            except Exception as e:
-                print(f"⛔ Hata oluştu: {str(e)}")
-                continue
-
-        print("❌ Hiçbir cihaza bağlanılamadı")
-        return False
-
+    # Completed
     async def scan_devices(self, scan_duration=10):
-        """Bluetooth cihazlarını tarar ve döndürür."""
-        print("🔍 Bluetooth taraması başlatılıyor...")
-
+        """Scan bluetooth devices for a given duration."""
+        logger.info(f"Scanning is started. Scan duration is {scan_duration}")
         process = subprocess.Popen(
             ["bluetoothctl"],
             stdin=subprocess.PIPE,
@@ -56,112 +29,121 @@ class BluetoothService:
             stderr=subprocess.PIPE,
             text=True
         )
-
         try:
             process.stdin.write("scan on\n")
             process.stdin.flush()
-            print(f"⏳ {scan_duration} saniye tarama yapılıyor...")
             time.sleep(scan_duration)
-
             process.stdin.write("scan off\n")
             process.stdin.write("devices\n")
             process.stdin.write("exit\n")
             process.stdin.flush()
         except Exception as e:
-            print(f"❌ Tarama sırasında hata: {e}")
+            logger.error(f"Error while sending commands: {e}")
             process.terminate()
 
         output, _ = process.communicate()
         return self._parse_devices(output)  
     
+    # It can be better
     async def disconnect_device(self):
+        """Disconnect connected device."""
+        logger.info("Disconnecting device...")
         return await self._run_bluetoothctl_commands(["disconnect"])
     
+    # Completed
     async def connect_device(self, mac_address: str):
-        """MAC adresine göre cihaz bağlanma akışı"""
-        known_devices = self._get_known_devices()
-
+        """ Trys to connect to a device. If the device is already paired, it will connect directly. If not, it will pair and connect."""
+        logger.info(f"Connecting to device: {mac_address}")
+        known_devices = self._get_known_devices_mac_address()
         if mac_address in known_devices:
-            print("🔒 Cihaz daha önce biliniyor, eşleştirilmiş olabilir.")
+            logger.info(f"Device {mac_address} is already paired.")
             return await self.connect_paired_device(mac_address)
         else:
-            print("🆕 Cihaz bilinmiyor, ilk kez bağlanılıyor.")
+            logger.info(f"Device {mac_address} is new. Pairing and connecting...")
             return await self.connect_new_device(mac_address)
-
+    
+    # Completed
     async def connect_paired_device(self, mac_address: str):
+        """Connect to a paired device."""
         await self.disconnect_device()
-        print(f"🔗 Eşleştirilmiş cihaza bağlanılıyor: {mac_address}")
-        await self._run_bluetoothctl_commands([
-            f"connect {mac_address}",
-            "exit"
-        ]) 
-        return self._try_activate_profiles(mac_address)
+        logger.info(f"Connecting to paired device: {mac_address}")
+        try:
+            await self._run_bluetoothctl_commands([
+                f"connect {mac_address}",
+                "exit"
+            ])  
+            return self._try_activate_profiles(mac_address)
+        except Exception as e:
+            logger.error(f"Connecting to paired device failed: {e}")
+            return False
 
+    # Check if this function is working
     async def connect_new_device(self, mac_address: str):
-        """Yeni cihazı pexpect ile otomatik onaylayarak eşle ve bağlan."""
+        """Pair and connect a new device using pexpect with auto-confirmation."""
         await self.disconnect_device()
-        print(f"🔐 [pexpect] Yeni cihazla eşleşme başlatılıyor: {mac_address}")
+        logger.info(f"🔐 [pexpect] Starting pairing with new device: {mac_address}")
         child = None
         
         try:
-            # 1. bluetoothctl oturumu başlat
+            # 1. Start bluetoothctl session
             child = pexpect.spawn("bluetoothctl", encoding="utf-8", timeout=15)
-            child.delaybeforesend = 0.5  # Gönderimler arası bekleme
+            child.delaybeforesend = 0.5  # Delay between sends
             
-            # 2. Başlangıç prompt'unu bekle
+            # 2. Wait for initial prompt
             child.expect(r"\[bluetooth\].*#", timeout=10)
             
-            # 3. Agent yapılandırması
+            # 3. Agent configuration
             child.sendline("agent NoInputNoOutput")
             child.expect("Agent is already registered", timeout=5)
             
             child.sendline("default-agent")
             child.expect("Default agent request successful", timeout=5)
             
-            # 4. Eşleştirme işlemi
+            # 4. Begin pairing
             child.sendline(f"pair {mac_address}")
             
-            # 5. Tüm olası senaryoları yönet
+            # 5. Handle possible responses
             patterns = [
-                "Confirm passkey.*yes/no",    # 0 - Passkey onayı
-                "Enter PIN code:",            # 1 - PIN girişi
-                "Pairing successful",         # 2 - Başarılı
-                "Already paired",             # 3 - Zaten eşli
-                "Failed to pair",             # 4 - Hata
-                "Device not available",       # 5 - Cihaz yok
-                pexpect.TIMEOUT               # 6 - Zaman aşımı
+                "Confirm passkey.*yes/no",    # 0 - Confirm passkey
+                "Enter PIN code:",            # 1 - Request PIN
+                "Pairing successful",         # 2 - Success
+                "Already paired",             # 3 - Already paired
+                "Failed to pair",             # 4 - Failed
+                "Device not available",       # 5 - Not found
+                pexpect.TIMEOUT               # 6 - Timeout
             ]
             
             while True:
                 index = child.expect(patterns)
                 
-                if index == 0:  # Passkey onayı
+                if index == 0:  # Passkey confirmation
                     child.sendline("yes")
-                    print("✅ Passkey otomatik onaylandı")
+                    logger.info("✅ Passkey automatically confirmed")
                     
-                elif index == 1:  # PIN girişi
-                    child.sendline("0000")  # Varsayılan PIN
-                    print("🔑 Varsayılan PIN (0000) gönderildi")
+                elif index == 1:  # Enter PIN
+                    child.sendline("0000")  # Default PIN
+                    logger.info("🔑 Default PIN (0000) sent")
                     
-                elif index == 2:  # Başarılı
-                    print("✅ Eşleştirme tamamlandı")
+                elif index == 2:  # Success
+                    logger.info("✅ Pairing completed successfully")
                     break
                     
-                elif index == 3:  # Zaten eşli
-                    print("ℹ️ Cihaz zaten eşleşmiş")
+                elif index == 3:  # Already paired
+                    logger.info("ℹ️ Device already paired")
                     break
                     
-                elif index in [4,5,6]:  # Hatalar
-                    print(f"❌ Hata: {child.before}")
+                elif index in [4, 5, 6]:  # Errors
+                    logger.error(f"❌ Pairing error: {child.before}")
                     return False
-            # 6. Güvenilir olarak işaretle
+
+            # 6. Mark device as trusted
             child.sendline(f"trust {mac_address}")
             child.expect("trust succeeded", timeout=10)
             
-            # 7. Bağlantıyı kur
+            # 7. Attempt to connect
             child.sendline(f"connect {mac_address}")
             
-            # 8. Bağlantı sonucunu kontrol et
+            # 8. Check connection result
             connection_result = child.expect([
                 "Connection successful.*#", 
                 "Failed to connect",
@@ -169,18 +151,18 @@ class BluetoothService:
             ], timeout=20)
             
             if connection_result == 0:
-                print("✅ Bağlantı başarılı")
-                # 9. A2DP profilini aktifleştir
+                logger.info("✅ Device connected successfully")
+                # 9. Disable pairable/discoverable modes
                 child.sendline("pairable off")
                 child.sendline("discoverable off")
-                print("🎧 A2DP profili aktif")
+                logger.info("🎧 A2DP profile activated")
                 return True
                 
-            print(f"❌ Bağlantı hatası: {child.before}")
+            logger.error(f"❌ Connection failed: {child.before}")
             return False
             
         except Exception as e:
-            print(f"⛔ Kritik hata: {str(e)}")
+            logger.exception(f"⛔ Critical error during device connection: {str(e)}")
             return False
             
         finally:
@@ -188,8 +170,9 @@ class BluetoothService:
                 child.sendline("exit")
                 child.close()
 
+    # Completed
     async def _run_bluetoothctl_commands(self, commands):
-        """bluetoothctl içine komutları gönder ve çıktıyı kontrol et."""
+        """Send commands into bluetoothctl and check the output."""
         process = subprocess.Popen(
             ["bluetoothctl"],
             stdin=subprocess.PIPE,
@@ -204,83 +187,62 @@ class BluetoothService:
                 process.stdin.flush()
                 time.sleep(3)
         except Exception as e:
-            print(f"❌ Komut gönderme hatası: {e}")
+            logger.error(f"❌ Error while sending commands: {e}")
             process.terminate()
 
         output, _ = process.communicate()
-        print("📄 bluetoothctl çıktısı:")
-        print(output)
+        logger.debug("📄 bluetoothctl output:")
+        logger.debug(output)
 
         return "Connected: yes" in output
     
+    # Completed
     def reset_bluetooth_cache(self):
         try:
-            # 1. Bluetooth servisini durdur
+            # 1. Stop the Bluetooth service
             subprocess.run(["sudo", "systemctl", "stop", "bluetooth"], check=True)
             
-            # 2. Bluetooth önbellek dizinini sil
+            # 2. Delete the Bluetooth cache directory
             cache_path = "/var/lib/bluetooth"
             if os.path.exists(cache_path):
                 shutil.rmtree(cache_path)
-                print(f"✅ Bluetooth önbelleği silindi: {cache_path}")
+                logger.info(f"✅ Bluetooth cache deleted: {cache_path}")
             else:
-                print("ℹ️ Önbellek dizini zaten mevcut değil")
+                logger.info("ℹ️ Cache directory does not exist")
 
-            # 3. Bluetooth servisini yeniden başlat
+            # 3. Restart the Bluetooth service
             subprocess.run(["sudo", "systemctl", "start", "bluetooth"], check=True)
-            print("♻️ Bluetooth servisi yeniden başlatıldı")
+            logger.info("♻️ Bluetooth service restarted")
             
             return True
         
         except Exception as e:
-            print(f"❌ Hata oluştu: {str(e)}")
+            logger.error(f"❌ An error occurred while resetting Bluetooth cache: {str(e)}")
             return False
-
-    # Utils
-
-    async def _check_device_status(self, mac_address: str) -> dict:
-        """Cihazın bağlantı durumunu kontrol eder"""
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "bluetoothctl", "info", mac_address,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL
-            )
-            stdout, _ = await proc.communicate()
-            
-            return {
-                "connected": b"Connected: yes" in stdout,
-                "paired": b"Paired: yes" in stdout,
-                "trusted": b"Trusted: yes" in stdout
-            }
-            
-        except Exception as e:
-            print(f"Durum kontrol hatası: {str(e)}")
-            return {}
         
-## Sorunsuz Çalışan Ve Değiştirilmemesi Gerekenler
-
+    # Completed
     def get_known_devices(self):
         try:
+            # Launch bluetoothctl in interactive mode
             process = subprocess.Popen(
                 ["bluetoothctl"],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                bufsize=1  # Satır tamponlamayı aktif et
+                bufsize=1  # Enable line buffering
             )
 
-            # Komutları gönder ve çıktıyı oku
+            # Send commands and read the output
             commands = [
-                "devices Paired\n",  # Doğru komut
+                "devices Paired\n",  # Correct command to list paired devices
                 "exit\n"
             ]
             output, error = process.communicate("".join(commands), timeout=10)
 
-            # Satır örneği: "Device 40:4E:36:AA:BB:CC JBL Speaker"
+            # Example line: "Device 40:4E:36:AA:BB:CC JBL Speaker"
             device_pattern = re.compile(r"Device\s+([0-9A-Fa-f:]{17})\s+(.+)")
-            
+
             devices = []
             for line in output.strip().splitlines():
                 match = device_pattern.match(line.strip())
@@ -292,107 +254,170 @@ class BluetoothService:
             return devices
 
         except (subprocess.CalledProcessError, FileNotFoundError, PermissionError) as e:
-            print(f"Hata oluştu: {str(e)}")
+            logger.error(f"Error occurred while retrieving paired devices: {str(e)}")
             return []
     
-    def _get_known_devices(self):
-        """Eşleştirilmiş cihazların MAC adreslerini döndürür."""
+    # Completed
+    def _get_known_devices_mac_address(self) -> list[str]:
+        """Returns the list of paired Bluetooth device MAC addresses using bluetoothctl."""
         try:
-            # bluetoothctl'i etkileşimli modda başlat
+            logger.info("Retrieving paired devices using bluetoothctl...")
+
+            # Launch bluetoothctl in interactive mode
             process = subprocess.Popen(
                 ["bluetoothctl"],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                bufsize=1  # Satır tamponlamayı aktif et
+                bufsize=1  # Enable line buffering
             )
 
-            # Komutları gönder ve çıktıyı oku
+            # Send commands to bluetoothctl
             commands = [
-                "devices Paired\n",  # Doğru komut
+                "devices Paired\n",  # Lists paired devices
                 "exit\n"
             ]
             output, error = process.communicate("".join(commands), timeout=10)
 
-            # Hata kontrolü
+            # Check for any error output
             if error:
-                print(f"Hata: {error}")
+                logger.error(f"bluetoothctl error: {error}")
                 return []
 
-            # MAC adreslerini bul (büyük-küçük harf duyarsız)
+            # Extract MAC addresses from output using regex
             mac_pattern = re.compile(
-                r"Device\s+((?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2})", 
+                r"Device\s+((?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2})",
                 re.IGNORECASE
             )
             devices = mac_pattern.findall(output)
+            unique_devices = list(set(devices))  # Remove duplicates
 
-            return list(set(devices))  # Tekrar edenleri filtrele
+            logger.info(f"Found {len(unique_devices)} paired device(s).")
+            return unique_devices
+
+        except subprocess.TimeoutExpired:
+            logger.error("bluetoothctl command timed out.")
+            return []
 
         except Exception as e:
-            print(f"Kritik hata: {str(e)}")
+            logger.exception(f"Unexpected error while retrieving paired devices: {e}")
             return []
         
+    # Completed
     def _parse_devices(self, output: str):
-        """bluetoothctl çıktısını düzenli ifadeyle parse eder."""
+        """Get bluetooth devices from the output of bluetoothctl."""
         pattern = re.compile(r'Device ((?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}) (.+)')
         devices = []
-
         for line in output.splitlines():
             match = pattern.search(line)
             if match:
                 mac, name = match.groups()
                 devices.append({"mac": mac.strip(), "name": name.strip()})
-
         unique_devices = {d['mac']: d for d in devices}.values()
         return list(unique_devices)
     
-    def _try_activate_profiles(self,mac_address: str):
+    # Completed -- Need to be more tests
+    def _try_activate_profiles(self, mac_address: str) -> bool:
+        """Try to activate supported Bluetooth profiles for a connected device."""
+        logger.info(f"Activating profiles for device: {mac_address}")
+        bus = SystemBus()
+        device_path = f"/org/bluez/hci0/dev_{mac_address.replace(':', '_')}"
+
+        try:
+            device = bus.get("org.bluez", device_path)
+
+            # Do not reconnect if already connected
+            if not device.Connected:
+                logger.warning("Device is not connected. Skipping profile activation.")
+                return False
+
+        except Exception as e:
+            logger.error(f"Device retrieval error: {e}")
+            return False
+
+        # Try to read supported UUIDs
+        try:
+            uuids = device.UUIDs
+            logger.debug(f"UUIDs: {uuids}")
+        except Exception as e:
+            logger.error(f"Error retrieving UUIDs: {e}")
+            uuids = []
+
+        # Attempt to activate A2DP via MediaPlayer1 (if available)
+        try:
+            player = bus.get("org.bluez", f"{device_path}/player0")
+            player.Play()
+            time.sleep(1)
+            player.Pause()
+            logger.info("✅ A2DP activated successfully.")
+        except Exception as e:
+            logger.warning(f"❌ Failed to activate A2DP: {e}")
+
+        # AVRCP profile detection (optional log only)
+        if any("110e" in uuid or "110c" in uuid for uuid in uuids):
+            logger.info("🎵 AVRCP is supported by the device.")
+        else:
+            logger.warning("⚠️ AVRCP UUID not found.")
+
+        # HFP (Hands-Free Profile) detection only
+        try:
+            if any("111f" in uuid for uuid in uuids):
+                logger.info("📞 HFP is supported (info only, not activated via BlueZ).")
+            else:
+                logger.warning("⚠️ HFP UUID not found.")
+        except Exception as e:
+            logger.error(f"❌ Error while checking HFP support: {e}")
+
+        return True
+    
+    """ def _try_activate_profiles(self,mac_address: str) -> bool:
+        Connect device and try to activate profiles.
+        logger.info(f"Profiles are being activated for {mac_address}")
         bus = SystemBus()
         device_path = f"/org/bluez/hci0/dev_{mac_address.replace(':', '_')}"
         
         try:
             device = bus.get("org.bluez", device_path)
-            print(f"🔗 Cihaz bağlanıyor: {mac_address}")
             device.Connect()
-            time.sleep(2)
+            time.sleep(1)
         except Exception as e:
-            print(f"❌ Bağlantı hatası: {e}")
-            return
+            logger.error(f"Connection error: {e}")
+            return False
 
         # UUID'ler üzerinden desteklenen profilleri kontrol edelim
         try:
             uuids = device.UUIDs
-            print("📋 Desteklenen profiller:")
             for uuid in uuids:
                 print(f" → {uuid}")
         except Exception as e:
-            print(f"⚠️ UUID okunamadı: {e}")
+            logger.error(f"Error catched on UUID retrieval: {e}")
             uuids = []
 
         # A2DP tetikle
         try:
-            print("🎵 A2DP (player0) tetikleniyor...")
             player = bus.get("org.bluez", f"{device_path}/player0")
             player.Play()
             time.sleep(1)
             player.Pause()
-            print("✅ A2DP aktif.")
+            logger.info(f"✅ A2DP  Activated")
         except Exception as e:
-            print(f"❌ A2DP açılırken hata: {e}")
+            logger.warning(f"❌ A2DP error when opening: {e}")
 
         # AVRCP kontrolü (player zaten tetikliyor ama ayrı log için)
         if any("110e" in uuid or "110c" in uuid for uuid in uuids):
-            print("🎮 AVRCP destekleniyor (player0 üzerinden zaten tetiklendi).")
+            logger.info("🎵 AVRCP is supported. Try to trigger.")
         else:
-            print("⚠️ AVRCP UUID bulunamadı.")
+            logger.warning("⚠️ AVRCP UUID is not found.")
 
         # HFP Audio Gateway (not: BlueZ tek başına HFP desteklemez)
         try:
             if any("111f" in uuid for uuid in uuids):
-                print("📞 HFP destekleniyor, tetiklenmeye çalışılıyor (oFono gerekebilir).")
+                logger.info("📞 HFP is supported, try to trigger.")
                 # BlueZ üzerinden doğrudan bağlanamaz, sadece bilgilendirme
             else:
-                print("⚠️ HFP UUID bulunamadı.")
+                logger.warning("⚠️ HFP UUID is not found.")
         except Exception as e:
-            print(f"❌ HFP kontrol hatası: {e}")
+            logger.error(f"❌ HFP control error: {e}")
+        return True """
+

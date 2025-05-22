@@ -2,7 +2,7 @@ import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from app.models.schemas import Metadata
 import asyncio
-from app.services.service_container import hfp_service, media_service
+from app.containers.service_container import hfp_service, media_service
 
 router = APIRouter(prefix="/ws", tags=["WebSocket"])
 

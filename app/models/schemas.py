@@ -17,3 +17,14 @@ class HandsFreeData(BaseModel):
     device_name: Optional[str] = None
     call_active: bool = False
     caller_info: Optional[str] = None
+
+class WifiCredentials(BaseModel):
+    ssid: str
+    password: str
+
+class WifiNetwork(BaseModel):
+    ssid: str
+    signal: int
+    security: str
+    bssid: str
+    interface: str

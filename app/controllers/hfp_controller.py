@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.services.service_container import hfp_service
+from app.containers.service_container import hfp_service
 
 router = APIRouter(prefix="/hfp", tags=["HandsFreeProfile"])
 service = hfp_service 
